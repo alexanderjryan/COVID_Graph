@@ -1,0 +1,176 @@
+import pandas as pd
+from datetime import timedelta, date
+import datetime
+import time
+import matplotlib.pyplot as plt
+import matplotlib.cbook as cbook
+import numpy as np
+import matplotlib.dates as mdates
+import matplotlib.ticker as matformat
+from matplotlib.dates import MO, TU, WE, TH, FR, SA, SU
+from matplotlib.backends.backend_pdf import PdfPages
+
+
+start=time.process_time()
+
+def daterange(start_date, end_date):
+    for n in range(int((end_date - start_date).days)):
+        yield start_date + timedelta(n)
+
+def unique(list1):  
+    unique_list = [] 
+    for x in list1: 
+        if x not in unique_list: 
+            unique_list.append(x) 
+    return unique_list
+
+def reformat_date_1 (datestring):
+    while True:
+        try:
+            date_time=datetime.datetime.strptime(datestring, '%m/%d/%y')
+            date_time_str=str(date_time)[0:10]
+            return date_time
+        except ValueError:
+            date_time=datetime.datetime.strptime(datestring, '%m/%d/%y %H:%M')
+            date_time_str=str(date_time)[0:10]
+            return date_time
+
+def reformat_date (datestring):
+    date_time=datetime.datetime.strptime(datestring, '%m/%d/%y')
+    return date_time
+
+def rungraph(FileOutput,ListofStates,DataFrame):
+    fig = plt.figure()
+    pdf=PdfPages(FileOutput)
+    for x in ListofStates:
+        df = pd.pivot_table(DataFrame[DataFrame.Province_State==x],values="Total Cases", columns= "Province_State", index='Date',aggfunc = "sum")
+        df.reset_index(inplace=True)
+        df=df.rename(columns={x:"Total Cases"})
+        df["Daily Increase"]=df["Total Cases"].diff()
+        df["Daily Increase (7 Day Moving Average)"]=df["Daily Increase"].rolling(7).mean()
+        graph(df,"Date","Daily Increase (7 Day Moving Average)",x)
+        pdf.savefig(fig)
+        plt.clf()
+    pdf.close
+
+def graph(dataframe, ColumnXName, ColumnY1Name,StateName): 
+    
+    #prep various Format Locators to Choose From
+    years = mdates.YearLocator()   # every year
+    months = mdates.MonthLocator()  # every month
+    auto=mdates.AutoDateLocator()
+    day=mdates.WeekdayLocator(byweekday=MO, interval=2)
+    months_fmt = mdates.DateFormatter('%b %d')
+
+    #create graph
+    
+    fig, ax = plt.subplots()
+    ax.plot(dataframe[ColumnXName], dataframe[ColumnY1Name])
+    ax.set_xlabel('Date')
+
+    #set axis ticks for x axis
+    ax.xaxis.set_major_locator(day)
+    ax.xaxis.set_major_formatter(months_fmt)
+
+    #create range of x axis
+    datemin = np.datetime64(dataframe[ColumnXName].iloc[0], 'm')
+    datemax = np.datetime64(dataframe[ColumnXName].iloc[-1],'m')+ np.timedelta64(1,'m')
+    ax.set_xlim(datemin, datemax)
+
+    #format the coords message box
+    ax.format_xdata = mdates.DateFormatter('%b-%d')
+    ax.grid(True)
+
+    # rotates and right aligns the x labels, and moves the bottom of the axes up to make room for them
+    fig.autofmt_xdate(rotation=75)
+
+    #format y axis
+    ax.get_yaxis().set_major_formatter(matformat.FuncFormatter(lambda x, p: format(int(x), ',')))
+    
+    #create annotation for prior day data point
+    plt.annotate("  {:,}".format(round(dataframe[ColumnY1Name].iloc[-1])), (dataframe[ColumnXName].iloc[-1], dataframe[ColumnY1Name].iloc[-1]))
+
+    ax.set_ylabel('Confirmed Cases')
+    ax.set_title(("Confirmed COVID-19 Cases in {}").format(StateName))
+    ax.legend()
+    
+    
+
+
+
+#Create variable containing github data html
+DataSource="https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"
+adf = pd.read_csv(DataSource)
+adf=adf.drop(columns=["UID","iso2","iso3","code3","Long_", "Country_Region","Lat"])
+df2 = pd.melt(adf, id_vars=["Admin2", "Province_State","Combined_Key","FIPS"], 
+                  var_name="Date", value_name="Total Cases")
+
+df2['Date'] = df2.apply(lambda x: reformat_date(x.Date), axis=1)
+start_date = date(2020, 3, 22)
+end_date = date.today()- timedelta(days=0)
+print(end_date)
+# Store your DataFrame
+df2.to_pickle('cashed_CovidDF_US')# will be stored in current directory
+
+
+# Read your DataFrame
+
+df = pd.read_pickle('cashed_CovidDF_US') # read from current directory
+start_date = pd.Timestamp(date(2020, 3, 22))
+end_date = pd.Timestamp(date.today()- timedelta(days=1))
+mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
+df = df.loc[mask]
+
+
+
+states=list(df["Province_State"].unique())
+
+states.remove("Diamond Princess")
+states.remove("Grand Princess")
+states.remove("Guam")
+states.remove("Puerto Rico")
+states.remove("Virgin Islands")
+states.remove("American Samoa")
+states.remove("Northern Mariana Islands")
+
+output=(r'C:\Users\alexanderryan\Documents\Date.pdf')
+
+rungraph(output,states,df)
+for x in states:                   
+    df2 = pd.pivot_table(df[df.Province_State==x],values="Total Cases", columns= "Province_State", index='Date',aggfunc = "sum")
+    df2.reset_index(inplace=True)
+    df2=df2.rename(columns={x:"Total Cases"})
+    df2["Daily Increase"]=df2["Total Cases"].diff()
+    df2["Daily Increase (7 Day Moving Average)"]=df2["Daily Increase"].rolling(7).mean()
+    graph(df2,"Date","Daily Increase (7 Day Moving Average)",x)
+
+'''
+#email
+import smtplib
+gmailuser = 'jcu.log.updates@gmail.com'
+gmailpassword = ''
+sent_from=gmailuser
+to=['aryan19@jcu.edu']
+subject='COVID-19 Tracker - %s' % (end_date)
+body='Hello, \n\nThank you for subscribing to the daily COVID-19 graph emailer. Please find the graphs pasted below %s. Happy isolating!   \n\nWith love,\nAutomated COVID-19 Emailer' % (OneDay, FinalFiler, file2)
+
+email_text="""\
+From: %s
+To: %s
+Subject: %s
+
+%s
+""" % (sent_from, ", ".join(to), subject, body)
+try:
+    server=smtplib.SMTP_SSL('smtp.gmail.com',465)
+    server.ehlo()
+    server.login(gmailuser,gmailpassword)
+    server.sendmail(sent_from,to,email_text)
+    server.close()
+    print('Email Sent!')
+except:
+    print ('Something went wrong...')
+'''
+print(time.process_time() - start)
+
+                
